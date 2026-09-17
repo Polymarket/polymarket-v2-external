@@ -1,0 +1,7 @@
+#!/bin/sh
+
+forge fmt
+git add -u '*.sol'
+
+forge snapshot
+git add .gas-snapshot

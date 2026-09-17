@@ -1,0 +1,26 @@
+# Compiler files
+cache/
+out/
+
+# Foundry broadcast artifacts
+/broadcast/
+
+# Env files
+.env
+.env.bak
+.envrc
+
+claude-memory/
+.claude-memory/
+.claude/
+*.code-workspace
+notion.md
+PLAN.md
+lcov.info
+*.DS_Store
+
+# Local snapshot backups
+snapshots/*.bak
+.certora_internal/
+certora/mutations
+certora/mutation

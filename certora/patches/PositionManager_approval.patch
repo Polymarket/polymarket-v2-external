@@ -1,0 +1,227 @@
+diff --git a/src/positionManager/PositionManager.sol b/src/positionManager/PositionManager.sol
+index 39ef832..3ce3022 100644
+--- a/src/positionManager/PositionManager.sol
++++ b/src/positionManager/PositionManager.sol
+@@ -288,60 +288,65 @@ contract PositionManager is
+                             UNSAFE TRANSFERS
+     --------------------------------------------------------------*/
+ 
++    /// @notice Returns whether `operator` is approved to manage `owner`'s tokens.
++    /// @dev MUNGE (approval): overrides Solady's getter via the shared `_approvalSlot` helper so the
++    ///      approval read here and in `unsafeTransferFrom`'s auth are one term for the Prover. Reads
++    ///      the identical production storage slot.
++    function isApprovedForAll(address owner, address operator) public view virtual override returns (bool result) {
++        uint256 slot = _approvalSlot(owner, operator);
++        assembly ("memory-safe") {
++            result := sload(slot)
++        }
++    }
++
++    /// @dev MUNGE (approval): the canonical ERC1155 approval-slot computation, keccak256(0x0c, 0x34)
++    ///      over operator at 0x0c and "seed | owner<<96" at 0x20 — the same slot Solady addresses.
++    function _approvalSlot(address owner, address operator) internal pure returns (uint256 slot) {
++        assembly ("memory-safe") {
++            mstore(0x20, or(_ERC1155_MASTER_SLOT_SEED, shl(96, owner)))
++            mstore(0x00, operator)
++            slot := keccak256(0x0c, 0x34)
++        }
++    }
++
+     /// @notice Transfers `amount` of token `id` from `from` to `to`
+     ///         without calling onERC1155Received on the recipient.
+     /// @dev Identical to Solady's safeTransferFrom assembly with the
+     ///      onERC1155Received callback and before/after hooks removed.
+     ///      The caller must be `from` or approved via setApprovalForAll.
+     function unsafeTransferFrom(address from, address to, PositionId id, uint256 amount) external {
++        // MUNGE (approval): route the caller-or-approved auth through `isApprovedForAll` so its
++        // approval-slot read is the same term the CVL couplings observe (the inline keccak(0x0c,0x34)
++        // did not unify with the getter under the Prover's storage analysis). Balance updates stay
++        // production assembly. Behavior-identical: same checks, order, reverts, and TransferSingle event.
++        if (to == address(0)) revert TransferToZeroAddress();
++        if (msg.sender != from && !isApprovedForAll(from, msg.sender)) revert NotOwnerNorApproved();
++        uint256 rawId = PositionId.unwrap(id);
+         assembly ("memory-safe") {
+             let fromSlotSeed := or(_ERC1155_MASTER_SLOT_SEED, shl(96, from))
+             let toSlotSeed := or(_ERC1155_MASTER_SLOT_SEED, shl(96, to))
++            // Subtract and store the updated balance of `from`.
+             mstore(0x20, fromSlotSeed)
+-            // Clear the upper 96 bits.
+-            from := shr(96, fromSlotSeed)
+-            to := shr(96, toSlotSeed)
+-            // Revert if `to` is the zero address.
+-            if iszero(to) {
+-                mstore(0x00, 0xea553b34) // `TransferToZeroAddress()`.
++            mstore(0x00, rawId)
++            let fromBalanceSlot := keccak256(0x00, 0x40)
++            let fromBalance := sload(fromBalanceSlot)
++            if gt(amount, fromBalance) {
++                mstore(0x00, 0xf4d678b8) // `InsufficientBalance()`.
+                 revert(0x1c, 0x04)
+             }
+-            // If the caller is not `from`, do the authorization check.
+-            if iszero(eq(caller(), from)) {
+-                mstore(0x00, caller())
+-                if iszero(sload(keccak256(0x0c, 0x34))) {
+-                    mstore(0x00, 0x4b6e7f18) // `NotOwnerNorApproved()`.
+-                    revert(0x1c, 0x04)
+-                }
+-            }
+-            // Subtract and store the updated balance of `from`.
+-            {
+-                mstore(0x00, id)
+-                let fromBalanceSlot := keccak256(0x00, 0x40)
+-                let fromBalance := sload(fromBalanceSlot)
+-                if gt(amount, fromBalance) {
+-                    mstore(0x00, 0xf4d678b8) // `InsufficientBalance()`.
+-                    revert(0x1c, 0x04)
+-                }
+-                sstore(fromBalanceSlot, sub(fromBalance, amount))
+-            }
++            sstore(fromBalanceSlot, sub(fromBalance, amount))
+             // Increase and store the updated balance of `to`.
+-            {
+-                mstore(0x20, toSlotSeed)
+-                let toBalanceSlot := keccak256(0x00, 0x40)
+-                let toBalanceBefore := sload(toBalanceSlot)
+-                let toBalanceAfter := add(toBalanceBefore, amount)
+-                if lt(toBalanceAfter, toBalanceBefore) {
+-                    mstore(0x00, 0x01336cea) // `AccountBalanceOverflow()`.
+-                    revert(0x1c, 0x04)
+-                }
+-                sstore(toBalanceSlot, toBalanceAfter)
++            mstore(0x20, toSlotSeed)
++            let toBalanceSlot := keccak256(0x00, 0x40)
++            let toBalanceBefore := sload(toBalanceSlot)
++            let toBalanceAfter := add(toBalanceBefore, amount)
++            if lt(toBalanceAfter, toBalanceBefore) {
++                mstore(0x00, 0x01336cea) // `AccountBalanceOverflow()`.
++                revert(0x1c, 0x04)
+             }
+-            // Emit a {TransferSingle} event.
+-            mstore(0x20, amount)
+-            // forgefmt: disable-next-line
+-            log4(0x00, 0x40, 0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62, caller(), from, to)
++            sstore(toBalanceSlot, toBalanceAfter)
+         }
++        emit TransferSingle(msg.sender, from, to, rawId, amount);
+     }
+ 
+     /// @notice Batch transfers tokens from `from` to `to`
+@@ -352,79 +357,53 @@ contract PositionManager is
+     function unsafeBatchTransferFrom(address from, address to, PositionId[] calldata ids, uint256[] calldata amounts)
+         external
+     {
++        // MUNGE (approval): route the caller-or-approved auth through `isApprovedForAll` so its
++        // approval-slot read is the same term the CVL couplings observe (the inline keccak(0x0c,0x34)
++        // did not unify with the getter under the Prover's storage analysis). Per-element balance
++        // updates stay production assembly. Behavior-identical: same checks, order, reverts, event.
++        if (ids.length != amounts.length) revert ArrayLengthsMismatch();
++        if (to == address(0)) revert TransferToZeroAddress();
++        if (msg.sender != from && !isApprovedForAll(from, msg.sender)) revert NotOwnerNorApproved();
+         assembly ("memory-safe") {
+-            if iszero(eq(ids.length, amounts.length)) {
+-                mstore(0x00, 0x3b800a46) // `ArrayLengthsMismatch()`.
+-                revert(0x1c, 0x04)
+-            }
+             let fromSlotSeed := or(_ERC1155_MASTER_SLOT_SEED, shl(96, from))
+             let toSlotSeed := or(_ERC1155_MASTER_SLOT_SEED, shl(96, to))
+-            mstore(0x20, fromSlotSeed)
+-            // Clear the upper 96 bits.
+-            from := shr(96, fromSlotSeed)
+-            to := shr(96, toSlotSeed)
+-            // Revert if `to` is the zero address.
+-            if iszero(to) {
+-                mstore(0x00, 0xea553b34) // `TransferToZeroAddress()`.
+-                revert(0x1c, 0x04)
+-            }
+-            // If the caller is not `from`, do the authorization check.
+-            if iszero(eq(caller(), from)) {
+-                mstore(0x00, caller())
+-                if iszero(sload(keccak256(0x0c, 0x34))) {
+-                    mstore(0x00, 0x4b6e7f18) // `NotOwnerNorApproved()`.
+-                    revert(0x1c, 0x04)
+-                }
+-            }
+             // Loop through all the `ids` and update the balances.
+-            {
+-                for { let i := shl(5, ids.length) } i { } {
+-                    i := sub(i, 0x20)
+-                    let amount := calldataload(add(amounts.offset, i))
+-                    // Subtract and store the updated balance of `from`.
+-                    {
+-                        mstore(0x20, fromSlotSeed)
+-                        mstore(0x00, calldataload(add(ids.offset, i)))
+-                        let fromBalanceSlot := keccak256(0x00, 0x40)
+-                        let fromBalance := sload(fromBalanceSlot)
+-                        if gt(amount, fromBalance) {
+-                            mstore(0x00, 0xf4d678b8) // `InsufficientBalance()`.
+-                            revert(0x1c, 0x04)
+-                        }
+-                        sstore(fromBalanceSlot, sub(fromBalance, amount))
++            for { let i := shl(5, ids.length) } i { } {
++                i := sub(i, 0x20)
++                let amount := calldataload(add(amounts.offset, i))
++                // Subtract and store the updated balance of `from`.
++                {
++                    mstore(0x20, fromSlotSeed)
++                    mstore(0x00, calldataload(add(ids.offset, i)))
++                    let fromBalanceSlot := keccak256(0x00, 0x40)
++                    let fromBalance := sload(fromBalanceSlot)
++                    if gt(amount, fromBalance) {
++                        mstore(0x00, 0xf4d678b8) // `InsufficientBalance()`.
++                        revert(0x1c, 0x04)
+                     }
+-                    // Increase and store the updated balance of `to`.
+-                    {
+-                        mstore(0x20, toSlotSeed)
+-                        let toBalanceSlot := keccak256(0x00, 0x40)
+-                        let toBalanceBefore := sload(toBalanceSlot)
+-                        let toBalanceAfter := add(toBalanceBefore, amount)
+-                        if lt(toBalanceAfter, toBalanceBefore) {
+-                            mstore(0x00, 0x01336cea) // `AccountBalanceOverflow()`.
+-                            revert(0x1c, 0x04)
+-                        }
+-                        sstore(toBalanceSlot, toBalanceAfter)
++                    sstore(fromBalanceSlot, sub(fromBalance, amount))
++                }
++                // Increase and store the updated balance of `to`.
++                {
++                    mstore(0x20, toSlotSeed)
++                    let toBalanceSlot := keccak256(0x00, 0x40)
++                    let toBalanceBefore := sload(toBalanceSlot)
++                    let toBalanceAfter := add(toBalanceBefore, amount)
++                    if lt(toBalanceAfter, toBalanceBefore) {
++                        mstore(0x00, 0x01336cea) // `AccountBalanceOverflow()`.
++                        revert(0x1c, 0x04)
+                     }
++                    sstore(toBalanceSlot, toBalanceAfter)
+                 }
+             }
+-            // Emit a {TransferBatch} event.
+-            {
+-                let m := mload(0x40)
+-                // Copy the `ids`.
+-                mstore(m, 0x40)
+-                let n := shl(5, ids.length)
+-                mstore(add(m, 0x40), ids.length)
+-                calldatacopy(add(m, 0x60), ids.offset, n)
+-                // Copy the `amounts`.
+-                mstore(add(m, 0x20), add(0x60, n))
+-                let o := add(add(m, n), 0x60)
+-                mstore(o, ids.length)
+-                calldatacopy(add(o, 0x20), amounts.offset, n)
+-                // Do the emit.
+-                // forgefmt: disable-next-line
+-                log4(m, add(add(n, n), 0x80), 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb, caller(), from, to)
+-            }
+         }
++        // Reinterpret PositionId[] calldata as uint256[] (identical layout) for the event.
++        uint256[] calldata rawIds;
++        assembly {
++            rawIds.offset := ids.offset
++            rawIds.length := ids.length
++        }
++        emit TransferBatch(msg.sender, from, to, rawIds, amounts);
+     }
+ 
+     /*--------------------------------------------------------------

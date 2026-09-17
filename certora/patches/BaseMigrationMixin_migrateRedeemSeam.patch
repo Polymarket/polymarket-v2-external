@@ -1,0 +1,71 @@
+CERTORA VERIFICATION MUNGE — migrate-loop redeem seam
+=====================================================
+The per-position redeem inside `_migratePositions` calls `_redeemIfResolved`
+directly, but that function is `private` and therefore cannot be overridden by a
+verification harness. This munge inserts an `internal virtual` pass-through,
+`_redeemIfResolvedDuringMigrate`, and routes ONLY the loop call site through it;
+`resolveMigrationCondition` keeps calling `_redeemIfResolved` directly.
+
+Why the seam is scoped to the loop only:
+  - The migrate loop unrolls `_redeemIfResolvedDuringMigrate` `loop_iter` times.
+    Its real body (legacy `payoutNumerators` reads, the `p0 * D / den` division,
+    the legacy redeem and the vault settle) is what makes both `migratePositions`
+    overloads diverge / time out in the solver.
+  - `BinaryModuleHarness` / `NegRiskModuleHarness` override THIS wrapper with a
+    sound over-approximation that drops the legacy plumbing but keeps the
+    resolution store (gated by `_useMigrateRedeemModel()`, default false).
+  - `resolveMigrationCondition` still calls `_redeemIfResolved`, so its real body
+    is preserved — over-approximating it there would make its resolved/preserved
+    case VACUOUS. That regression is the exact reason the override is scoped to
+    the loop.
+
+Production is behavior-identical: the wrapper is a straight pass-through and no
+production module overrides it. The munge is required to COMPILE the two module
+harnesses (their `_redeemIfResolvedDuringMigrate ... override` needs a base
+`virtual`), so it must be applied for every Binary / NegRisk conf, not just the
+Solvency02 specs whose overrides are actually active.
+
+Required by: every Binary-* and NegRisk-* conf (they compile BinaryModuleHarness /
+NegRiskModuleHarness). The active overrides are consumed by Binary-Solvency02 and
+NegRisk-Solvency02 (via `_useMigrateRedeemModel() => ALWAYS(true)`).
+Apply:  git apply certora/patches/BaseMigrationMixin_migrateRedeemSeam.patch
+Revert: git apply -R certora/patches/BaseMigrationMixin_migrateRedeemSeam.patch
+Never commit the applied state to src/.
+
+diff --git a/src/modules/migration/BaseMigrationMixin.sol b/src/modules/migration/BaseMigrationMixin.sol
+index ba611da..a0821f1 100644
+--- a/src/modules/migration/BaseMigrationMixin.sol
++++ b/src/modules/migration/BaseMigrationMixin.sol
+@@ -241,7 +241,7 @@ abstract contract BaseMigrationMixin is BaseModule, MigrationEvents, MigrationEr
+                 bytes32 legacyConditionId_ = _legacyConditionIds[i];
+ 
+                 if (legacyConditionId_ != lastSettledLegacyConditionId) {
+-                    if (!_redeemIfResolved(positionIds[i].conditionId(), legacyConditionId_)) {
++                    if (!_redeemIfResolvedDuringMigrate(positionIds[i].conditionId(), legacyConditionId_)) {
+                         IConditionalTokens legacyCT_ = _legacyConditionalTokens();
+                         address legacyCollateral_ = _legacyCollateralToken();
+                         uint256 complementaryAmount = legacyCT_.balanceOf(
+@@ -312,6 +312,23 @@ abstract contract BaseMigrationMixin is BaseModule, MigrationEvents, MigrationEr
+         return true;
+     }
+ 
++    /// @notice Migrate-loop indirection over `_redeemIfResolved`.
++    /// @dev Verification seam only. The per-position redeem inside the `_migratePositions` loop is
++    ///      unrolled `loop_iter` times; formal-verification harnesses override THIS wrapper (not
++    ///      `_redeemIfResolved`) so the single-call `resolveMigrationCondition` path — which calls
++    ///      `_redeemIfResolved` directly — always keeps the real body. Production is a
++    ///      behavior-identical pass-through; no production module overrides it.
++    /// @param _conditionId The structured V2 condition ID.
++    /// @param _legacyConditionId The legacy CTF condition ID to inspect and redeem.
++    /// @return True if the legacy CTF condition is resolved.
++    function _redeemIfResolvedDuringMigrate(ConditionId _conditionId, bytes32 _legacyConditionId)
++        internal
++        virtual
++        returns (bool)
++    {
++        return _redeemIfResolved(_conditionId, _legacyConditionId);
++    }
++
+     /// @dev Settle legacy collateral into the collateral vault (unwrap if needed).
+     function _settleLegacyCollateralToVault() internal {
+         address usdce_ = _usdce();

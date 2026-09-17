@@ -1,0 +1,26 @@
+CERTORA VERIFICATION MUNGE — route BaseMigrationMixin's result-mapping read through getResult()
+===============================================================================================
+Split out of NegRiskModule_getResult.patch so BaseMigrationMixin munges can be
+excluded selectively (e.g. whole-function migrate experiments on pristine code).
+Redirects the single `result[conditionId]` read in _redeemIfResolved to the
+virtual `getResult(conditionId)` view, so the CVL summary of `getResult`
+governs it; same rationale as the parent patch.
+
+Required by: NegRiskModule solvency + sanity scenes (ghost-modeled results).
+Apply:  git apply certora/patches/BaseMigrationMixin_getResult.patch
+Revert: git apply -R certora/patches/BaseMigrationMixin_getResult.patch
+Never commit the applied state to src/.
+
+diff --git a/src/modules/migration/BaseMigrationMixin.sol b/src/modules/migration/BaseMigrationMixin.sol
+index ba611da..19d4267 100644
+--- a/src/modules/migration/BaseMigrationMixin.sol
++++ b/src/modules/migration/BaseMigrationMixin.sol
+@@ -294,7 +294,7 @@ abstract contract BaseMigrationMixin is BaseModule, MigrationEvents, MigrationEr
+
+         if (payoutDenominator == 0) return false;
+
+-        if (result[_conditionId].length == 0) {
++        if (getResult(_conditionId).length == 0) {
+             require(resolutionPausedAt[_conditionId.eventId()] == 0, ResolutionIsPaused());
+
+             uint256[] memory result_ = new uint256[](2);

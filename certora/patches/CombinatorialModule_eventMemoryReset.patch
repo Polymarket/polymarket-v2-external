@@ -1,0 +1,98 @@
+CERTORA VERIFICATION MUNGE — drop the free-memory-pointer reset in the event ops
+=================================================================================
+splitOnEvent / mergeOnEvent / convertOnEvent each capture the free-memory pointer
+before their fan-out loop and `mstore(0x40, memoryCheckpoint)` it back after every
+iteration. That is a pure GAS optimization: it lets each iteration reuse the memory
+the previous one allocated (the transient child-legs array), keeping memory flat
+instead of growing linearly (quadratic memory-expansion gas) over the event's
+conditions.
+
+The plain (non-"memory-safe") assembly rewind collapses the Prover's memory model
+into a spurious always-revert, so all three methods verify VACUOUSLY (rule_sanity:
+SANITY_FAIL). Confirmed by a controlled experiment (a reset-free harness clone is
+reachable while the real method is not — job 96f08b37).
+
+Removing the reset is behavior-identical for the state-based solvency/canonicity
+properties:
+  - the child-legs array is copied into STORAGE (_storeLegsFromMemory) and its id is
+    consumed into the mint BEFORE the reset — nothing from iteration i is read in i+1;
+  - parentLegs / baseLegs / childPositionIds (needed across iterations) are allocated
+    BEFORE the loop, below the checkpoint, so the rewind never touches them;
+  - each iteration allocates fresh, zero-initialized arrays, so reuse cannot alias a
+    stale read.
+The only observable difference is memory-expansion GAS, which the Prover does not
+model. Storage writes, mints, burns and revert conditions are unchanged. (Validated
+by mutation testing on the event ops.)
+
+Required by: CombinatorialCanonicalEvents / CombinatorialWellFormedEvents confs.
+Apply:  git apply certora/patches/CombinatorialModule_eventMemoryReset.patch
+Revert: git apply -R certora/patches/CombinatorialModule_eventMemoryReset.patch
+Never commit the applied state to src/.
+
+diff --git a/src/modules/CombinatorialModule.sol b/src/modules/CombinatorialModule.sol
+index 0b17636..3999c9a 100644
+--- a/src/modules/CombinatorialModule.sol
++++ b/src/modules/CombinatorialModule.sol
+@@ -559,10 +559,6 @@ contract CombinatorialModule is
+             require(_to.length == conditionCount_ + 1, InvalidArrayLength());
+             _requireEventNotPresent(parentLegs, _eventId);
+ 
+-            uint256 memoryCheckpoint;
+-            assembly ("memory-safe") {
+-                memoryCheckpoint := mload(0x40)
+-            }
+             for (uint256 i; i <= conditionCount_; ++i) {
+                 {
+                     ConditionId childConditionId = _storeLegsFromMemory(
+@@ -570,9 +566,6 @@ contract CombinatorialModule is
+                     );
+                     POSITION_MANAGER.mint(_to[i], childConditionId.computePositionId(0), _amount);
+                 }
+-                assembly {
+-                    mstore(0x40, memoryCheckpoint)
+-                }
+             }
+         }
+ 
+@@ -600,10 +593,6 @@ contract CombinatorialModule is
+             _requireEventNotPresent(parentLegs, _eventId);
+             childPositionIds = new PositionId[](conditionCount_ + 1);
+ 
+-            uint256 memoryCheckpoint;
+-            assembly ("memory-safe") {
+-                memoryCheckpoint := mload(0x40)
+-            }
+             for (uint256 i; i <= conditionCount_; ++i) {
+                 {
+                     ConditionId childConditionId = _storeLegsFromMemory(
+@@ -611,9 +600,6 @@ contract CombinatorialModule is
+                     );
+                     childPositionIds[i] = childConditionId.computePositionId(0);
+                 }
+-                assembly {
+-                    mstore(0x40, memoryCheckpoint)
+-                }
+             }
+         }
+ 
+@@ -666,10 +652,6 @@ contract CombinatorialModule is
+ 
+         {
+             uint256 recipientIndex;
+-            uint256 memoryCheckpoint;
+-            assembly ("memory-safe") {
+-                memoryCheckpoint := mload(0x40)
+-            }
+             for (uint256 i; i <= conditionCount_; ++i) {
+                 if (i == sourceConditionIndex) continue;
+                 {
+@@ -677,9 +659,6 @@ contract CombinatorialModule is
+                         _storeLegsFromMemory(_insertLeg(baseLegs, eventId_.computeConditionId(i).computePositionId(0)));
+                     POSITION_MANAGER.mint(_to[recipientIndex], childConditionId.computePositionId(0), _amount);
+                 }
+-                assembly {
+-                    mstore(0x40, memoryCheckpoint)
+-                }
+                 ++recipientIndex;
+             }
+         }

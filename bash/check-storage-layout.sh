@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Use the `ci` profile (foundry.toml) so code_size_limit applies consistently
+# across forge test/coverage/snapshot. CI already sets this; this ensures local
+# invocations behave the same.
+export FOUNDRY_PROFILE="${FOUNDRY_PROFILE:-ci}"
+
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "$WORK_DIR"' EXIT
+
+FAILED=0
+
+# Filter: only data rows (skip header separators like |---+---+...|).
+# The leading-name pattern must accept an underscore so reserved storage gaps
+# (e.g. `__gap`) appear in the baseline — without this, `forge inspect` and the
+# baseline both silently drop gap rows and the check passes vacuously.
+filter_layout() {
+  grep -E '^\| [a-zA-Z_]'
+}
+
+# --- PositionManager ---
+forge inspect src/positionManager/PositionManager.sol:PositionManager storage-layout \
+  | filter_layout > "$WORK_DIR/position-manager-layout.txt"
+
+if ! diff -q .storage-layouts/PositionManager.md "$WORK_DIR/position-manager-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for PositionManager!"
+  echo ""
+  diff .storage-layouts/PositionManager.md "$WORK_DIR/position-manager-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/positionManager/PositionManager.sol:PositionManager storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/PositionManager.md"
+  FAILED=1
+else
+  echo "PositionManager storage layout unchanged."
+fi
+
+# --- CollateralToken ---
+forge inspect src/collateral/CollateralToken.sol:CollateralToken storage-layout \
+  | filter_layout > "$WORK_DIR/collateral-token-layout.txt"
+
+if ! diff -q .storage-layouts/CollateralToken.md "$WORK_DIR/collateral-token-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for CollateralToken!"
+  echo ""
+  diff .storage-layouts/CollateralToken.md "$WORK_DIR/collateral-token-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/collateral/CollateralToken.sol:CollateralToken storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/CollateralToken.md"
+  FAILED=1
+else
+  echo "CollateralToken storage layout unchanged."
+fi
+
+# --- Exchange ---
+forge inspect src/exchange/Exchange.sol:Exchange storage-layout \
+  | filter_layout > "$WORK_DIR/exchange-layout.txt"
+
+if ! diff -q .storage-layouts/Exchange.md "$WORK_DIR/exchange-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for Exchange!"
+  echo ""
+  diff .storage-layouts/Exchange.md "$WORK_DIR/exchange-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/exchange/Exchange.sol:Exchange storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/Exchange.md"
+  FAILED=1
+else
+  echo "Exchange storage layout unchanged."
+fi
+
+# --- OracleAggregator ---
+forge inspect src/oracle/OracleAggregator.sol:OracleAggregator storage-layout \
+  | filter_layout > "$WORK_DIR/oracle-aggregator-layout.txt"
+
+if ! diff -q .storage-layouts/OracleAggregator.md "$WORK_DIR/oracle-aggregator-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for OracleAggregator!"
+  echo ""
+  diff .storage-layouts/OracleAggregator.md "$WORK_DIR/oracle-aggregator-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/oracle/OracleAggregator.sol:OracleAggregator storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/OracleAggregator.md"
+  FAILED=1
+else
+  echo "OracleAggregator storage layout unchanged."
+fi
+
+# --- OOReporterModule ---
+forge inspect src/oracle/modules/OOReporterModule.sol:OOReporterModule storage-layout \
+  | filter_layout > "$WORK_DIR/oo-reporter-module-layout.txt"
+
+if ! diff -q .storage-layouts/OOReporterModule.md "$WORK_DIR/oo-reporter-module-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for OOReporterModule!"
+  echo ""
+  diff .storage-layouts/OOReporterModule.md "$WORK_DIR/oo-reporter-module-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/oracle/modules/OOReporterModule.sol:OOReporterModule storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/OOReporterModule.md"
+  FAILED=1
+else
+  echo "OOReporterModule storage layout unchanged."
+fi
+
+# --- BinaryModule ---
+forge inspect src/modules/BinaryModule.sol:BinaryModule storage-layout \
+  | filter_layout > "$WORK_DIR/binary-module-layout.txt"
+
+if ! diff -q .storage-layouts/BinaryModule.md "$WORK_DIR/binary-module-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for BinaryModule!"
+  echo ""
+  diff .storage-layouts/BinaryModule.md "$WORK_DIR/binary-module-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/modules/BinaryModule.sol:BinaryModule storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/BinaryModule.md"
+  FAILED=1
+else
+  echo "BinaryModule storage layout unchanged."
+fi
+
+# --- NegRiskModule ---
+forge inspect src/modules/NegRiskModule.sol:NegRiskModule storage-layout \
+  | filter_layout > "$WORK_DIR/negrisk-module-layout.txt"
+
+if ! diff -q .storage-layouts/NegRiskModule.md "$WORK_DIR/negrisk-module-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for NegRiskModule!"
+  echo ""
+  diff .storage-layouts/NegRiskModule.md "$WORK_DIR/negrisk-module-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/modules/NegRiskModule.sol:NegRiskModule storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/NegRiskModule.md"
+  FAILED=1
+else
+  echo "NegRiskModule storage layout unchanged."
+fi
+
+# --- CombinatorialModule ---
+forge inspect src/modules/CombinatorialModule.sol:CombinatorialModule storage-layout \
+  | filter_layout > "$WORK_DIR/combinatorial-module-layout.txt"
+
+if ! diff -q .storage-layouts/CombinatorialModule.md "$WORK_DIR/combinatorial-module-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for CombinatorialModule!"
+  echo ""
+  diff .storage-layouts/CombinatorialModule.md "$WORK_DIR/combinatorial-module-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/modules/CombinatorialModule.sol:CombinatorialModule storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/CombinatorialModule.md"
+  FAILED=1
+else
+  echo "CombinatorialModule storage layout unchanged."
+fi
+
+# --- Router ---
+forge inspect src/routers/Router.sol:Router storage-layout \
+  | filter_layout > "$WORK_DIR/router-layout.txt"
+
+if ! diff -q .storage-layouts/Router.md "$WORK_DIR/router-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for Router!"
+  echo ""
+  diff .storage-layouts/Router.md "$WORK_DIR/router-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/routers/Router.sol:Router storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/Router.md"
+  FAILED=1
+else
+  echo "Router storage layout unchanged."
+fi
+
+# --- BridgeRouter ---
+forge inspect src/routers/BridgeRouter.sol:BridgeRouter storage-layout \
+  | filter_layout > "$WORK_DIR/bridge-router-layout.txt"
+
+if ! diff -q .storage-layouts/BridgeRouter.md "$WORK_DIR/bridge-router-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for BridgeRouter!"
+  echo ""
+  diff .storage-layouts/BridgeRouter.md "$WORK_DIR/bridge-router-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/routers/BridgeRouter.sol:BridgeRouter storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/BridgeRouter.md"
+  FAILED=1
+else
+  echo "BridgeRouter storage layout unchanged."
+fi
+
+# --- CtfRouter ---
+forge inspect src/routers/CtfRouter.sol:CtfRouter storage-layout \
+  | filter_layout > "$WORK_DIR/ctf-router-layout.txt"
+
+if ! diff -q .storage-layouts/CtfRouter.md "$WORK_DIR/ctf-router-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for CtfRouter!"
+  echo ""
+  diff .storage-layouts/CtfRouter.md "$WORK_DIR/ctf-router-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/routers/CtfRouter.sol:CtfRouter storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/CtfRouter.md"
+  FAILED=1
+else
+  echo "CtfRouter storage layout unchanged."
+fi
+
+# --- CcipBridge ---
+forge inspect src/bridge/CcipBridge.sol:CcipBridge storage-layout \
+  | filter_layout > "$WORK_DIR/ccip-bridge-layout.txt"
+
+if ! diff -q .storage-layouts/CcipBridge.md "$WORK_DIR/ccip-bridge-layout.txt" > /dev/null 2>&1; then
+  echo "Storage layout changed for CcipBridge!"
+  echo ""
+  diff .storage-layouts/CcipBridge.md "$WORK_DIR/ccip-bridge-layout.txt" || true
+  echo ""
+  echo "If intentional, run: forge inspect src/bridge/CcipBridge.sol:CcipBridge storage-layout | grep -E '^\| [a-zA-Z_]' > .storage-layouts/CcipBridge.md"
+  FAILED=1
+else
+  echo "CcipBridge storage layout unchanged."
+fi
+
+# --- Custom Storage Slot Tests ---
+echo ""
+echo "Running custom storage slot tests..."
+if ! forge test --mc StorageSlots -vvv; then
+  echo "Custom storage slot tests failed!"
+  FAILED=1
+fi
+
+if [ "$FAILED" -eq 1 ]; then
+  echo ""
+  echo "Storage layout check failed."
+  exit 1
+fi
+
+echo ""
+echo "All storage layout checks passed."

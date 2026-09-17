@@ -1,0 +1,44 @@
+CERTORA VERIFICATION MUNGE — CombinatorialModule._storeLegsFromMemory virtual seam
+==================================================================================
+`certora/harnesses/CombinatorialModule.sol` overrides `_storeLegsFromMemory` to
+raise a harness-only `storeLegsCalled` flag and then delegate to
+`super._storeLegsFromMemory`, so certora/specs/solvency/CombinatorialLegStore.spec
+can prove COMBI-SL-FIX-2 ("`_storeLegsFromMemory` is the unique writer of `legs`")
+against the REAL store body. The production declaration is plain `internal`
+(non-virtual), which seals the inheritance chain and blocks the override from
+compiling.
+
+This munge adds `virtual`. Production behavior is identical: no production contract
+subclasses CombinatorialModule, so the call sites still dispatch statically and the
+function body is untouched. Same shape as
+certora/patches/NegRiskModule_storeResultVirtual.patch.
+
+Why an override rather than a CVL summary: a summary that raises a ghost and then
+re-enters the real body through a harness entry point makes the summarized function
+recur inside its own summary. Without recursion flags the Prover havocs that call —
+measured on job 14f4ce1af5774a829a021b1b408d4d1f, where all three FIX-1 rules and
+exactly the 13 leg-writing methods of each parametric rule failed while the 23
+non-storing methods passed. The Solidity override has no such ambiguity.
+
+Required by: every conf that compiles certora/harnesses/CombinatorialModule.sol —
+confs/solvency/Combinatorial{LegStore,WellFormed,Canonical,Module,ModuleRedeem,
+RefineForward,RefineInverse,RefineWrap,RefineCompress}, confs/bridge/CcipBridge and
+CcipBridge-sanity (their harness override needs the base `virtual`). Applied for the
+whole suite by certora/scripts/patch.sh.
+Apply:  git apply certora/patches/CombinatorialModule_storeLegsVirtual.patch
+Revert: git apply -R certora/patches/CombinatorialModule_storeLegsVirtual.patch
+Never commit the applied state to src/.
+
+diff --git a/src/modules/CombinatorialModule.sol b/src/modules/CombinatorialModule.sol
+index 0b17636..c96ad12 100644
+--- a/src/modules/CombinatorialModule.sol
++++ b/src/modules/CombinatorialModule.sol
+@@ -1139,7 +1139,7 @@ contract CombinatorialModule is
+     /// @dev Stores a leg array from memory and returns its conditionId. Definitions are
+     ///      write-once: storing an identical array is a no-op, and any other array for that
+     ///      conditionId reverts.
+-    function _storeLegsFromMemory(PositionId[] memory _legs) internal returns (ConditionId) {
++    function _storeLegsFromMemory(PositionId[] memory _legs) internal virtual returns (ConditionId) {
+         uint256 length = _legs.length;
+         require(length > 0, InvalidConditionSet());
+         require(length <= MAX_LEGS, InvalidConditionSet());

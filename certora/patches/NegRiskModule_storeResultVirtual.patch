@@ -1,0 +1,32 @@
+CERTORA VERIFICATION MUNGE — NegRiskModule._storeResult virtual seam
+=====================================================================
+`NegRiskModuleHarness` overrides `_storeResult` to mirror stored results into
+uint256-keyed mappings that CVL hooks can observe (r0Mirror, r1Mirror,
+lenMirror, yesSumMirror). The production `NegRiskModule._storeResult` is
+declared `internal override` (non-virtual), which seals the inheritance chain
+and blocks the harness override from compiling.
+
+This munge adds `virtual` so `NegRiskModuleHarness._storeResult ... override`
+compiles. Production behavior is identical: no production contract subclasses
+NegRiskModule.
+
+Required by: every NegRisk-* conf and eq/NegRiskMigrationEquivalence (they
+compile NegRiskModuleHarness, whose `_storeResult` override needs the base
+`virtual`).
+Apply:  git apply certora/patches/NegRiskModule_storeResultVirtual.patch
+Revert: git apply -R certora/patches/NegRiskModule_storeResultVirtual.patch
+Never commit the applied state to src/.
+
+diff --git a/src/modules/NegRiskModule.sol b/src/modules/NegRiskModule.sol
+index c3d9e1b..e822eca 100644
+--- a/src/modules/NegRiskModule.sol
++++ b/src/modules/NegRiskModule.sol
+@@ -382,7 +382,7 @@ contract NegRiskModule is UUPSUpgradeable, Initializable, BaseModule, NegRiskMig
+     }
+ 
+     /// @dev Neg-risk conditions are binary: every condition resolves fully YES or fully NO.
+-    function _storeResult(ConditionId _conditionId, uint256[] memory _result) internal override {
++    function _storeResult(ConditionId _conditionId, uint256[] memory _result) internal virtual override {
+         super._storeResult(_conditionId, _result);
+ 
+         uint256 result0 = _result[0];

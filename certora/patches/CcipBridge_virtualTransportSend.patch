@@ -1,0 +1,29 @@
+CcipBridge virtual _transportSend munge (verification-only)
+============================================================
+
+Makes CcipBridge._transportSend `virtual` so the Certora harness
+(certora/harnesses/CcipBridge.sol) can override it to record a Solidity-side
+keccak256 digest of every sent payload (`sentPayloadDigest`). Mutation testing
+showed CVL-side keccak256 equality over cross-boundary dynamic bytes is
+content-blind at payload sizes, so the BRIDGE-01 payload-fidelity asserts must
+compare EVM-side digests instead of gCcipDataHash ghosts.
+
+Semantics are unchanged: no production contract overrides _transportSend.
+
+Apply:  git apply certora/patches/CcipBridge_virtualTransportSend.patch
+Revert: git apply -R certora/patches/CcipBridge_virtualTransportSend.patch
+
+Never commit the applied state to src/.
+
+diff --git a/src/bridge/CcipBridge.sol b/src/bridge/CcipBridge.sol
+index 9771e03..aeb9bf6 100644
+--- a/src/bridge/CcipBridge.sol
++++ b/src/bridge/CcipBridge.sol
+@@ -169,6 +169,7 @@ contract CcipBridge is CCIPReceiver, UUPSUpgradeable, Initializable, OwnableRole
+     /// @return messageId The CCIP message identifier returned by the router.
+     function _transportSend(uint256 _dstChain, bytes memory _payload, bytes calldata _options)
+         internal
++        virtual
+         override
+         returns (bytes32 messageId)
+     {

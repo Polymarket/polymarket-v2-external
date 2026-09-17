@@ -1,0 +1,47 @@
+CERTORA VERIFICATION MUNGE — BridgeBase._processMessage prefix strip
+====================================================================
+Replaces the in-place assembly pointer bump (payload = _message[1:]) with an
+external self-call using a native calldata slice. Behavior-identical; restores
+the Prover's pointer analysis, which the assembly breaks for every external
+call AND every abi.decoded value downstream of it in the inlined ccipReceive
+body (calls report "both callee contract and sighash unresolved" and decoded
+tuples come out unconstrained).
+
+Required by: certora/confs/bridge/CcipBridge.conf (BRIDGE-01 spec).
+Apply:  git apply certora/patches/BridgeBase_stripPrefix.patch
+Revert: git apply -R certora/patches/BridgeBase_stripPrefix.patch
+Never commit the applied state to src/.
+
+diff --git a/src/bridge/abstract/BridgeBase.sol b/src/bridge/abstract/BridgeBase.sol
+index 48198f0..8708d0d 100644
+--- a/src/bridge/abstract/BridgeBase.sol
++++ b/src/bridge/abstract/BridgeBase.sol
+@@ -458,18 +458,22 @@ abstract contract BridgeBase is ERC1155TokenReceiver, IBridge {
+         // _message is mutated in place below; the caller's buffer must never be used again after this call.
+         MessageType msgType = MessageType(uint8(_message[0]));
+ 
+-        assembly ("memory-safe") {
+-            // payload = _message[1:], update _message in place
+-            let payloadLength := sub(mload(_message), 1)
+-            _message := add(_message, 1)
+-            mstore(_message, payloadLength)
+-        }
++        // CERTORA MUNGE: replaces the in-place assembly pointer bump (payload = _message[1:]).
++        // The assembly breaks the Prover's pointer analysis for every call AND every decoded
++        // value downstream. An external self-call with a native calldata slice is
++        // behavior-identical and returns a fresh, cleanly-tracked bytes array.
++        _message = this.certoraStripPrefix(_message);
+ 
+         if (msgType == MessageType.POSITIONS) _handlePositionsReceive(_messageId, _message);
+         else if (msgType == MessageType.COLLATERAL) _handleCollateralReceive(_messageId, _message);
+         else if (msgType == MessageType.RESULT) _handleResultReceive(_messageId, _srcChain, _message);
+     }
+ 
++    /// @dev CERTORA MUNGE helper — see _processMessage. Verification-only; not production code.
++    function certoraStripPrefix(bytes calldata _message) external pure returns (bytes memory) {
++        return _message[1:];
++    }
++
+     /*--------------------------------------------------------------
+                            PRIVATE FUNCTIONS
+     --------------------------------------------------------------*/

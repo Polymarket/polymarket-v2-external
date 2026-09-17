@@ -1,0 +1,62 @@
+CERTORA VERIFICATION MUNGE — route result-mapping reads through getResult()
+===========================================================================
+Redirects every internal read of the `result[conditionId]` storage mapping to
+the virtual `getResult(conditionId)` view, so the CVL summary of `getResult`
+governs them. BaseMigrationMixin's read lives in BaseMigrationMixin_getResult.patch (split out so it
+can be excluded selectively). Writes and the getResult bodies are untouched.
+
+The neg-risk override derives sibling-NO / synthetic-Other results that are
+never stored; routing getPayout/hasResult/reportResult through getResult makes
+them observe those derived results (the property under proof), and the
+migration read short-circuits to the raw mapping for migration conditions, so
+that redirect is behavior-preserving.
+
+Required by: NegRiskModule solvency + sanity scenes.
+Apply:  git apply certora/patches/NegRiskModule_getResult.patch
+Revert: git apply -R certora/patches/NegRiskModule_getResult.patch
+Never commit the applied state to src/.
+
+diff --git a/src/modules/NegRiskModule.sol b/src/modules/NegRiskModule.sol
+index c3d9e1b..3f57d5f 100644
+--- a/src/modules/NegRiskModule.sol
++++ b/src/modules/NegRiskModule.sol
+@@ -129,7 +129,7 @@ contract NegRiskModule is UUPSUpgradeable, Initializable, BaseModule, NegRiskMig
+         // Resolver roles cannot resolve migration conditions.
+         if (isMigrationCondition_ && hasAllRoles(msg.sender, RESOLVER_ROLE)) revert MigrationNotSupported();
+
+-        uint256[] storage storedResult = result[_conditionId];
++        uint256[] memory storedResult = getResult(_conditionId);
+         if (storedResult.length > 0) {
+             // If the result being proposed by the resolver or bridge is different from the stored result, revert.
+             // This is catastrophic and should never happen.
+@@ -151,7 +151,7 @@ contract NegRiskModule is UUPSUpgradeable, Initializable, BaseModule, NegRiskMig
+
+             // Verify that the result being proposed by the bridge is equal to the result we just got from the CTF.
+             // Something is wrong if this is not the case.
+-            uint256[] storage resolvedResult = result[_conditionId];
++            uint256[] memory resolvedResult = getResult(_conditionId);
+             if (_result.length != 2 || _result[0] != resolvedResult[0] || _result[1] != resolvedResult[1]) {
+                 revert ExistingPayoutMismatch();
+             }
+diff --git a/src/modules/abstract/BaseModule.sol b/src/modules/abstract/BaseModule.sol
+index 9c19109..3d8a8c6 100644
+--- a/src/modules/abstract/BaseModule.sol
++++ b/src/modules/abstract/BaseModule.sol
+@@ -159,7 +159,7 @@ abstract contract BaseModule is
+
+         require(outcomeIndex < 2, InvalidOutcomeIndex());
+
+-        uint256[] memory result_ = result[conditionId];
++        uint256[] memory result_ = getResult(conditionId);
+         require(result_.length == 2, ConditionNotResolved());
+
+         uint256 resultNumerator = result_[outcomeIndex];
+@@ -275,7 +275,7 @@ abstract contract BaseModule is
+     /// @param _conditionId The condition ID
+     /// @return True if a result is available (stored, or derived by an override)
+     function hasResult(ConditionId _conditionId) external view virtual returns (bool) {
+-        return result[_conditionId].length > 0;
++        return getResult(_conditionId).length > 0;
+     }
+
+     /*--------------------------------------------------------------
