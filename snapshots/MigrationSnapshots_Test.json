@@ -1,0 +1,12 @@
+{
+  "binary_migrate_batch16": "476946",
+  "binary_migrate_batch2": "255102",
+  "binary_migrate_batch4": "286779",
+  "binary_migrate_batch8": "350145",
+  "binary_migrate_operator_batch4": "291238",
+  "negRisk_migrate_batch16": "1434524",
+  "negRisk_migrate_batch2": "281025",
+  "negRisk_migrate_batch4": "442767",
+  "negRisk_migrate_batch8": "780488",
+  "negRisk_migrate_operator_batch4": "447182"
+}

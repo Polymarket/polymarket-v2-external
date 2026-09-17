@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  check:
+    name: Build, Format & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          # 1.8.0 changes formatter and branch-coverage semantics; keep the
+          # deployment artifacts and CI checks reproducible for this release.
+          version: v1.7.1
+
+      - name: Cache Forge build artifacts
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            cache
+            out
+          # Only restore artifacts built from this exact source tree so incremental
+          # builds never pick up stale creation code.
+          key: forge-check-${{ hashFiles('foundry.toml', 'src/**/*.sol', 'lib/**/*.sol') }}
+
+      - name: Show Forge version
+        run: forge --version
+
+      - name: Run Forge fmt
+        run: forge fmt --check
+        id: fmt
+
+      - name: Run Forge build
+        run: forge build
+        id: build
+
+      - name: Check wrap discipline (no unvalidated UDVT.wrap in production)
+        run: make wrap-check
+
+      - name: Check contract sizes (Polygon PIP-30, 32KB)
+        run: make sizes
+
+      - name: Run Forge tests
+        run: forge test -vvv
+        id: test
+
+      - name: Check gas snapshots
+        run: forge snapshot --diff --tolerance 1 | grep -v 'setUp()' | (! grep -q '^Diff')
+        id: snapshot
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: v1.7.1
+
+      - name: Cache Forge build artifacts
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            cache
+            out
+          key: forge-build-${{ hashFiles('foundry.toml', 'src/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-build-
+
+      - name: Check coverage threshold
+        run: make coverage
+
+  storage:
+    name: Storage Layout
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: v1.7.1
+
+      - name: Cache Forge build artifacts
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            cache
+            out
+          key: forge-build-${{ hashFiles('foundry.toml', 'src/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-build-
+
+      - name: Run Forge build
+        run: forge build --force
+
+      - name: Check storage layouts
+        run: make storage-check
+
+  invariant:
+    name: Invariant Tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        with:
+          version: v1.7.1
+
+      - name: Cache Forge build artifacts
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            cache
+            out
+          key: forge-invariant-${{ hashFiles('foundry.toml', 'src/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-invariant-
+
+      - name: Run Forge invariant tests
+        run: forge test -vvv --match-test 'invariant_.*' --no-match-test '^$'
