@@ -1,0 +1,101 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+
+solc_version = "0.8.34"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 1_000_000
+
+code_size_limit = 32_768
+extra_output = ["storageLayout"]
+gas_snapshot_check = false
+always_use_create_2_factory = true
+no_match_test = "invariant_.*"
+
+# Dependency Remappings
+remappings = [
+  "@polymarket-v2/src/=src/",
+  "managed-oracle/pm-v2-oo-reporter/=lib/managed-oracle/pm-v2-oo-reporter/src/",
+  "@openzeppelin/contracts-upgradeable/=lib/managed-oracle/pm-v2-oo-reporter/lib/openzeppelin-contracts-upgradeable/contracts/",
+  "@openzeppelin/contracts/=lib/managed-oracle/pm-v2-oo-reporter/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
+  "@solady/=lib/solady/",
+  "@forge-std/=lib/forge-std/",
+]
+
+# Suppress the "more than 256 warnings" meta-warning from solc
+# (triggered by solady's ~1400 suppressed warnings still being counted internally)
+ignored_error_codes = [4591]
+
+# Suppress solc warnings from test, dev, and library files
+ignored_warnings_from = [
+  "lib/forge-std",       # deprecated memory-safe-assembly NatSpec comment warnings (unfixed upstream)
+  "lib/solady",          # deprecated NatSpec + virtual modifier warnings (unfixed upstream)
+  "src/oracle/test",
+  "src/positionManager/dev",
+  "src/test",
+]
+
+fs_permissions = [
+  { access = "read", path = "artifacts/" },
+]
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = true
+wrap_comments = true
+single_line_statement_blocks = "single"
+
+[invariant]
+runs = 64
+depth = 128
+fail_on_revert = false
+
+[lint]
+exclude_lints = [
+  "asm-keccak256",
+  "mixed-case-function",
+  "mixed-case-variable",
+  "screaming-snake-case-const",
+  "unsafe-typecast",
+  "unwrapped-modifier-logic"
+]
+ignore = [
+  "src/*/test/*",
+  "src/*/test/*/*",
+  "src/*/test/*/*/*",
+  "src/*/dev/*",
+  "src/test/*",
+  "src/test/*/*",
+  "src/external/*",
+  "src/external/*/*",
+  "src/external/*/*/*",
+  "src/legacy/*",
+  "src/legacy/*/*",
+  "src/legacy/*/*/*",
+]
+
+# Test & CI profiles: relax code_size_limit so large test harness contracts can deploy.
+# Production contract sizes are validated by `make sizes` (bash/check-contract-sizes.sh)
+# against Polygon's 32KB PIP-30 limit, independent of the profile's code_size_limit.
+# Local: forge test (invariant test contracts are excluded by default)
+# CI:    FOUNDRY_PROFILE=ci (set in GitHub Actions env)
+[profile.test]
+code_size_limit = 393_216
+
+[profile.ci]
+code_size_limit = 393_216
+# Keep CI's CREATE2 assertions aligned with the canonical deployment profile.
+bytecode_hash = "none"
+cbor_metadata = false
+
+# Oracle deployment profile: omit compiler metadata so CREATE2 implementation targets are
+# reproducible across compiler hosts.
+[profile.oracle]
+code_size_limit = 393_216
+bytecode_hash = "none"
+cbor_metadata = false
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
